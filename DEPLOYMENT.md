@@ -18,7 +18,12 @@ Deploy `backend/` to any Python-compatible service such as Render, Railway, Fly.
 
 ```bash
 curl https://your-api.example.com/health
+curl https://your-api.example.com/api/v2/catalog | head -c 300
 ```
+
+The v2 app falls back to the v1 endpoints when `/api/v2/catalog` is missing, but redeploying the backend is what enables fast thumbnails, the curated feed, collections and the new generators. `numpy` is now a runtime dependency (see `requirements.txt`).
+
+Rendered images are deterministic and served with `Cache-Control: immutable`, so putting a CDN (for example Cloudflare) in front of the API caches thumbnails at the edge with no extra configuration. The in-process render cache uses up to ~160 MB of RAM.
 
 ## Build the Android app against production
 
@@ -50,4 +55,4 @@ The release bundle is unsigned by default. Configure a private signing key in `a
 - Android emulator: use `http://10.0.2.2:8000`.
 - Physical Android device: use the development machine LAN address, for example `http://192.168.1.25:8000`.
 - Set the value as `API_BASE_URL` in `android/gradle.properties`, or pass `-PAPI_BASE_URL=...` to `assembleDebug`.
-- The manifest allows cleartext HTTP for local development. Use HTTPS for production.
+- Debug builds allow cleartext HTTP for local development; release builds require HTTPS.
