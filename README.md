@@ -28,7 +28,8 @@ WallBloom is a stateless procedural wallpaper generator: a Python FastAPI image 
 ```text
 backend/   FastAPI + Pillow/numpy generators, render cache, v2 catalog/feed API, pytest suite
 android/   Kotlin + Jetpack Compose app (data / system / ui layers), JVM unit tests
-artifacts/ Previously published builds (v1.0, not rebuilt for v2)
+artifacts/ wallbloom-debug-latest.apk is the v2.0.0 debug build (production API);
+           the prod APK/AAB are still v1.0 because they need the owner's signing key
 doc/       Original design reference
 ```
 
