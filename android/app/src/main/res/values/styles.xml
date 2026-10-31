@@ -1,9 +1,15 @@
 <resources>
-    <style name="Theme.AuraWall" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#8B5CF6</item>
-        <item name="android:navigationBarColor">#080B14</item>
-        <item name="android:statusBarColor">#080B14</item>
+    <style name="Theme.AuraWall" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:colorAccent">#8B7CFF</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.AuraWall.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ink</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.AuraWall</item>
     </style>
 </resources>

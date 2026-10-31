@@ -1,1 +1,5 @@
-# AuraWall does not currently require custom R8 rules.
+# WallBloom uses org.json (platform) and no reflection-based serialization.
+# OkHttp/Okio/Coil ship their own consumer rules.
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
