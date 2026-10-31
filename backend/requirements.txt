@@ -1,7 +1,5 @@
-fastapi
-uvicorn
-pydantic
-pillow
-python-dotenv
-anthropic
-requests
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+pydantic>=2,<3
+pillow>=10.3
+numpy>=1.26

@@ -9,6 +9,10 @@ from PIL import Image, ImageDraw
 from enum import Enum
 from io import BytesIO
 
+import numpy as np
+
+from premium_engine import PREMIUM_PATTERNS
+
 class PatternType(str, Enum):
     HILLS = "hills"
     WAVES = "waves"
@@ -108,6 +112,15 @@ class PatternType(str, Enum):
     SUNBURST = "sunburst"
     DROPLETS = "droplets"
     WIRE_FRAME = "wire_frame"
+    MESH_GRADIENT = "mesh_gradient"
+    GRAIN_GRADIENT = "grain_gradient"
+    LAYERED_PEAKS = "layered_peaks"
+    SILK_WAVES = "silk_waves"
+    BOKEH = "bokeh"
+    LIQUID = "liquid"
+    FLOW_LINES = "flow_lines"
+    GLASS_ORBS = "glass_orbs"
+    HALFTONE = "halftone"
 
 # Color palettes
 PRESET_PALETTES = [
@@ -310,6 +323,86 @@ PRESET_PALETTES = [
     {
         "name": "Toxic",
         "colors": ["#0a1a00", "#1a4d00", "#66cc00", "#ccff33"]
+    },
+    {
+        "name": "Midnight Bloom",
+        "colors": ["#0d0b1f", "#3a1c71", "#d76d77", "#ffaf7b"]
+    },
+    {
+        "name": "Nordic Frost",
+        "colors": ["#1b2a38", "#4b6a88", "#a3c4dc", "#eef5fb"]
+    },
+    {
+        "name": "Matcha Latte",
+        "colors": ["#1f2a1b", "#5a7d4b", "#b5c99a", "#f1f4e8"]
+    },
+    {
+        "name": "Terracotta",
+        "colors": ["#2b1a14", "#8c4a32", "#d8875f", "#f5d9c4"]
+    },
+    {
+        "name": "Sakura",
+        "colors": ["#3d1f2b", "#b5577b", "#f2a7c3", "#fff0f5"]
+    },
+    {
+        "name": "Cyberpunk",
+        "colors": ["#0a0221", "#5a00a8", "#ff2a6d", "#05d9e8"]
+    },
+    {
+        "name": "Lavender Haze",
+        "colors": ["#231b3a", "#6c5b9e", "#b8a9e3", "#f3effd"]
+    },
+    {
+        "name": "Desert Dusk",
+        "colors": ["#2e1d2e", "#8a4f5a", "#e09a6b", "#f8dcb4"]
+    },
+    {
+        "name": "Peach Fuzz",
+        "colors": ["#3f2a26", "#c26d55", "#ffbe98", "#fff1e8"]
+    },
+    {
+        "name": "Emerald Night",
+        "colors": ["#02120e", "#064e3b", "#10b981", "#a7f3d0"]
+    },
+    {
+        "name": "Royal Velvet",
+        "colors": ["#120a24", "#3b1e6d", "#7c3aed", "#ddd6fe"]
+    },
+    {
+        "name": "Golden Hour",
+        "colors": ["#2a1405", "#a14a0c", "#f59e0b", "#fde68a"]
+    },
+    {
+        "name": "Arctic Aurora",
+        "colors": ["#020617", "#0e7490", "#2dd4bf", "#e0f2fe"]
+    },
+    {
+        "name": "Rose Gold",
+        "colors": ["#2d1b1f", "#9d6b6b", "#e8b4a8", "#fbeae5"]
+    },
+    {
+        "name": "Monochrome Blue",
+        "colors": ["#020b1c", "#0b3d91", "#3b82f6", "#dbeafe"]
+    },
+    {
+        "name": "Pastel Dream",
+        "colors": ["#6b7fd7", "#a5b4fc", "#fbcfe8", "#fef9c3"]
+    },
+    {
+        "name": "AMOLED Violet",
+        "colors": ["#000000", "#12002b", "#6d28d9", "#c4b5fd"]
+    },
+    {
+        "name": "AMOLED Ember",
+        "colors": ["#000000", "#1f0500", "#c2410c", "#fdba74"]
+    },
+    {
+        "name": "Sea Glass",
+        "colors": ["#0f2e2e", "#2f6f6a", "#86c5b8", "#e6f6f1"]
+    },
+    {
+        "name": "Mocha",
+        "colors": ["#1c140f", "#4e3629", "#a47551", "#ead7c3"]
     }
 ]
 
@@ -350,6 +443,29 @@ def get_palette_colors(palette_index, inverted=False):
     if inverted:
         return [invert_color(c) for c in colors]
     return colors
+
+
+def _fill_grid_mask(draw, mask, step, width, height, rgb):
+    """Fill step x step blocks wherever a coarse grid mask is set."""
+    full = np.kron(mask.astype(np.uint8), np.ones((step, step), dtype=np.uint8))[:height, :width] * 255
+    draw.bitmap((0, 0), Image.fromarray(full, mode="L"), fill=rgb)
+
+
+def _paint_nearest_cells(draw, pts, step, width, height, colors):
+    """Colour each step-sized block by its nearest seed point (Voronoi cells).
+
+    Equivalent to drawing overlapping step+1 rectangles in raster order, where
+    each block is overwritten by its right/bottom neighbour.
+    """
+    P = np.array(pts, dtype=np.int64)
+    gx = np.arange(0, width, step, dtype=np.int64)
+    gy = np.arange(0, height, step, dtype=np.int64)
+    d = (gx[None, None, :] - P[:, 0, None, None]) ** 2 + (gy[None, :, None] - P[:, 1, None, None]) ** 2
+    nearest = np.argmin(d, axis=0)
+    palette = np.array([hex_to_rgb(c) for c in colors], dtype=np.uint8)
+    cells = palette[nearest % len(colors)]
+    full = np.repeat(np.repeat(cells, step, axis=0), step, axis=1)[:height, :width]
+    draw._image.paste(Image.fromarray(np.ascontiguousarray(full), mode="RGB"), (0, 0))
 
 def generate_hills(draw, width, height, colors, rng):
     """Generate hills pattern"""
@@ -558,6 +674,7 @@ def generate_hexagon(draw, width, height, colors, rng):
 def generate_aurora(draw, width, height, colors, rng):
     """Generate aurora borealis curtain pattern"""
     num_bands = rng.randint(4, 8)
+    xs = range(width)
     for i in range(num_bands):
         color = colors[i % len(colors)]
         rgb = hex_to_rgb(color)
@@ -565,18 +682,16 @@ def generate_aurora(draw, width, height, colors, rng):
         band_height = rng.randint(height // 8, height // 3)
         freq = rng.uniform(0.003, 0.008)
         phase = rng.uniform(0, 2 * math.pi)
-
+        # The wave offset only depends on x, so compute it once per band and
+        # draw each row as one batched point call instead of per-pixel calls.
+        offsets = [int(20 * math.sin(x * freq + phase)) for x in xs]
         for dy in range(band_height):
             alpha = int(180 * (1 - dy / band_height))
             blended = tuple(int(c * alpha / 255) for c in rgb)
-            points = []
-            for x in range(width):
-                y = base_y + dy + int(20 * math.sin(x * freq + phase))
-                if 0 <= y < height:
-                    points.append((x, y))
-            for p in points:
-                draw.point(p, fill=blended)
-
+            row = base_y + dy
+            points = [(x, row + o) for x, o in zip(xs, offsets) if 0 <= row + o < height]
+            if points:
+                draw.point(points, fill=blended)
 
 def generate_mandala(draw, width, height, colors, rng):
     """Generate mandala / radial symmetry pattern"""
@@ -906,27 +1021,20 @@ def generate_contour(draw, width, height, colors, rng):
     centers = [(rng.randint(width // 4, 3 * width // 4),
                  rng.randint(height // 4, 3 * height // 4)) for _ in range(num_centers)]
     num_lines = rng.randint(12, 22)
+    # Sample the gaussian field once on the 3px grid (vectorised) and reuse it
+    # for every contour level.
+    gx = np.arange(0, width, 3, dtype=np.float64)
+    gy = np.arange(0, height, 3, dtype=np.float64)
+    X, Y = np.meshgrid(gx, gy)
+    sigma2 = 2 * (width * 0.25) ** 2
+    field = sum(np.exp(-((X - cx) ** 2 + (Y - cy) ** 2) / sigma2) for cx, cy in centers)
     for li in range(num_lines):
         color = colors[(li % (len(colors) - 1)) + 1]
         rgb = hex_to_rgb(color)
         threshold = (li + 1) / (num_lines + 1)
-        pts = []
-        for x in range(0, width, 3):
-            # sum of gaussian hills
-            val = sum(
-                math.exp(-((x - cx) ** 2 + (0 - cy) ** 2) / (2 * (width * 0.25) ** 2))
-                for cx, cy in centers
-            )
-            for y in range(0, height, 3):
-                v = sum(
-                    math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * (width * 0.25) ** 2))
-                    for cx, cy in centers
-                )
-                if abs(v - threshold) < 0.015:
-                    pts.append((x, y))
-        for p in pts:
-            draw.point(p, fill=rgb)
-
+        ys, xs = np.nonzero(np.abs(field - threshold) < 0.015)
+        if len(xs):
+            draw.point(list(zip((xs * 3).tolist(), (ys * 3).tolist())), fill=rgb)
 
 def generate_plaid(draw, width, height, colors, rng):
     """Woven plaid / tartan crossing stripe pattern"""
@@ -1265,14 +1373,14 @@ def generate_topographic(draw, width, height, colors, rng):
     step = 4  # coarser sampling for performance
     sigma2 = 2 * (width * 0.3) ** 2
     n = len(centers)
+    X, Y = np.meshgrid(np.arange(0, width, step, dtype=np.float64), np.arange(0, height, step, dtype=np.float64))
+    field = sum(np.exp(-((X - cx) ** 2 + (Y - cy) ** 2) / sigma2) for cx, cy in centers) / n
     for li in range(levels):
         rgb = hex_to_rgb(colors[(li % (len(colors)-1)) + 1])
         threshold = (li + 1) / (levels + 1)
-        for x in range(0, width, step):
-            for y in range(0, height, step):
-                v = sum(math.exp(-((x-cx)**2+(y-cy)**2)/sigma2) for cx,cy in centers) / n
-                if abs(v - threshold) < 0.025:
-                    draw.rectangle([x, y, x+step-1, y+step-1], fill=rgb)
+        mask = np.abs(field - threshold) < 0.025
+        if mask.any():
+            _fill_grid_mask(draw, mask, step, width, height, rgb)
 
 def generate_waveform(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
@@ -1496,12 +1604,7 @@ def generate_roots(draw, width, height, colors, rng):
 def generate_voronoi(draw, width, height, colors, rng):
     n = rng.randint(20, 50)
     pts = [(rng.randint(0,width), rng.randint(0,height)) for _ in range(n)]
-    step = 4
-    for y in range(0, height, step):
-        for x in range(0, width, step):
-            nearest = min(range(n), key=lambda i: (pts[i][0]-x)**2+(pts[i][1]-y)**2)
-            rgb = hex_to_rgb(colors[nearest % len(colors)])
-            draw.rectangle([x, y, x+step, y+step], fill=rgb)
+    _paint_nearest_cells(draw, pts, 4, width, height, colors)
     for (px, py) in pts:
         draw.ellipse([px-3, py-3, px+3, py+3], fill=hex_to_rgb(colors[0]))
 
@@ -1757,12 +1860,7 @@ def generate_stained_glass(draw, width, height, colors, rng):
     n = rng.randint(30, 60)
     pts = [(rng.randint(0, width), rng.randint(0, height)) for _ in range(n)]
     pts += [(0,0),(width,0),(0,height),(width,height)]
-    step = 5
-    for y in range(0, height, step):
-        for x in range(0, width, step):
-            nearest = min(range(len(pts)), key=lambda i: (pts[i][0]-x)**2+(pts[i][1]-y)**2)
-            rgb = hex_to_rgb(colors[nearest % len(colors)])
-            draw.rectangle([x, y, x+step, y+step], fill=rgb)
+    _paint_nearest_cells(draw, pts, 5, width, height, colors)
     for i, (px, py) in enumerate(pts[:n]):
         for j, (qx, qy) in enumerate(pts[:n]):
             if i < j and math.sqrt((qx-px)**2+(qy-py)**2) < width//5:
@@ -2103,6 +2201,10 @@ def generate_pattern(width, height, pattern_type, palette_index, seed, inverted=
     
     # Get colors
     colors = get_palette_colors(palette_index, inverted)
+
+    premium = PREMIUM_PATTERNS.get(getattr(pattern_type, "value", pattern_type))
+    if premium is not None:
+        return premium(width, height, colors, rng)
     
     # Create image with background color
     bg_color = hex_to_rgb(colors[0])
