@@ -9,6 +9,8 @@ from PIL import Image, ImageDraw
 from enum import Enum
 from io import BytesIO
 
+from premium_engine import PREMIUM_SCENES, PREMIUM_SCENE_DEFINITIONS
+
 
 class SceneTheme(str, Enum):
     LANDMARKS = "landmarks"
@@ -18,6 +20,7 @@ class SceneTheme(str, Enum):
     URBAN = "urban"
     UNDERWATER = "underwater"
     FANTASY = "fantasy"
+    MINIMAL = "minimal"
 
 
 class SceneType(str, Enum):
@@ -110,6 +113,17 @@ class SceneType(str, Enum):
     DRAGON_LAIR = "dragon_lair"
     ANCIENT_RUINS = "ancient_ruins"
     AURORA_CASTLE = "aurora_castle"
+
+    # Minimal
+    MINIMAL_MOUNTAINS = "minimal_mountains"
+    MISTY_FOREST = "misty_forest"
+    OCEAN_SUNSET = "ocean_sunset"
+    MOONLIT_DUNES = "moonlit_dunes"
+    RINGED_PLANET = "ringed_planet"
+    AURORA_LAKE = "aurora_lake"
+    LONE_TREE = "lone_tree"
+    PAPER_HILLS = "paper_hills"
+    CITY_DUSK = "city_dusk"
 
 
 # Scene definitions with default palettes
@@ -573,6 +587,11 @@ SCENE_DEFINITIONS = {
         "default_palette": ["#020b18", "#0d1a30", "#1aff9c", "#b3fff0", "#cc88ff", "#ffffff"]
     },
 }
+
+
+# Minimal scenes live in premium_engine; register them with the same shape.
+for _key, _definition in PREMIUM_SCENE_DEFINITIONS.items():
+    SCENE_DEFINITIONS[SceneType(_key)] = {**_definition, "theme": SceneTheme.MINIMAL}
 
 
 def get_scene_default_palette(scene_type: str) -> list:
@@ -3737,6 +3756,10 @@ def generate_scene(width, height, scene_type, palette_colors, seed, inverted=Fal
     # Normalize scene_type to string value for comparison
     if hasattr(scene_type, 'value'):
         scene_type = scene_type.value
+
+    premium = PREMIUM_SCENES.get(scene_type)
+    if premium is not None:
+        return premium(width, height, palette_colors, rng)
 
     bg_color = hex_to_rgb(palette_colors[0])
     image = Image.new('RGB', (width, height), bg_color)

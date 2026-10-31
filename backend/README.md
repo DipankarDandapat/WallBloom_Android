@@ -1,338 +1,74 @@
-# WallBloom Backend - FastAPI
+# WallBloom backend (FastAPI)
 
-Simple, stateless FastAPI backend for wallpaper generation. No authentication, no database required.
+Stateless, deterministic wallpaper renderer. No authentication, no database.
 
-## Features
-
-✅ **10 Procedural Patterns**
-- Hills, Waves, Dunes, Mountains, Arcs, Scribble, Geometric, Noise, Gradient, Cellular
-
-✅ **12 Color Palettes**
-- Charcoal, Stone, Ocean Blue, Sunrise, Fire, Purple, Neon, Arctic, Forest, Sunset, Deep Space, Tropical
-
-✅ **Deterministic Generation**
-- Same seed + pattern + palette = same image every time
-- Perfect for reproducibility
-
-✅ **High-Resolution Exports**
-- Desktop: 3840x2160 (4K)
-- Mobile: 1290x2796
-
-✅ **No Authentication**
-- Open access to all endpoints
-- No database required
-- Stateless design
-
-## Installation
-
-### Prerequisites
-- Python 3.9+
-- pip or pip3
-
-### Step 1: Install Dependencies
+## Run
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt    # runtime deps + pytest/httpx
+python main.py                         # PORT (default 8000), DEBUG=true enables reload
+python -m pytest -q
 ```
 
-### Step 2: Run Backend
+Environment variables: `PORT`, `DEBUG` (`true` enables auto-reload), `WARM_CACHE` (`1` by default; pre-renders today's hero and first feed page in the background after start-up).
 
-```bash
-python main.py
-```
+## Modules
 
-**Expected output**:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000
-INFO:     Application startup complete
-```
+| File | Role |
+|---|---|
+| `pattern_engine.py` | 98 original procedural patterns + 70 palettes. Hot spots (`contour`, `topographic`, `aurora`, `voronoi`, `stained_glass`) are vectorised with numpy and produce pixel-identical output 4–200× faster. |
+| `scene_engine.py` | 74 original illustrated scenes in 7 themes + the Minimal theme registered from `premium_engine`. |
+| `premium_engine.py` | Gradient/blur/grain based generators: 9 patterns and 9 Minimal scenes. |
+| `render.py` | Single render entry point: validation, thumbnail scaling, cover-fit to any size, WebP/JPEG/PNG encoding, byte-bounded LRU cache and request coalescing. |
+| `catalog.py` | Pattern categories, scene-theme metadata, palette tags, collections and the deterministic daily feed. |
+| `main.py` | HTTP routes (v2 + v1 compatibility). |
 
-## API Endpoints
+## v2 API
 
-### Health Check
-```bash
-GET /health
-```
+### `GET /api/v2/catalog`
 
-### List Patterns
-```bash
-GET /api/patterns
-```
+Everything the app shows as navigation and content: `pattern_categories` (id, name, Material Symbols `icon`, `emoji` fallback, `accent`), `patterns` (key, name, category, glyph, featured), `scene_themes` with their scenes and default colours, `palettes` with tags, `collections` (with a cover wallpaper) and today's `hero` wallpapers. Cached for 30 minutes.
 
-Response:
+### `GET /api/v2/feed?collection=&page=&page_size=&salt=`
+
+An infinite, deterministic, curated feed. Without `collection` it mixes featured patterns and scenes; `salt` reshuffles it (pull-to-refresh). The default salt changes daily. Unknown collections return 404.
+
+Each item is a complete wallpaper description:
+
 ```json
-{
-  "patterns": [
-    {"type": "hills", "name": "Hills", "description": "A hills pattern"}
-  ]
-}
+{"id": "scene:ocean_sunset:-1:438211:0", "kind": "scene", "key": "ocean_sunset", "name": "Ocean Sunset",
+ "subtitle": "Minimal", "category": "minimal", "palette": -1, "seed": 438211, "inverted": false,
+ "colors": ["#120d26", "..."]}
 ```
 
-### List Palettes
-```bash
-GET /api/palettes
-```
+### `GET /api/v2/render`
 
-Response:
-```json
-[
-  {
-    "id": 0,
-    "name": "Charcoal",
-    "colors": ["#1a1a1a", "#4a4a4a", "#8a8a8a", "#d0d0d0"],
-    "description": "Palette: Charcoal",
-    "is_preset": true,
-    "created_at": "2024-01-01T00:00:00",
-    "updated_at": "2024-01-01T00:00:00"
-  }
-]
-```
+| Param | Meaning |
+|---|---|
+| `kind` | `pattern` or `scene` |
+| `key` | Pattern or scene key |
+| `palette` | Palette id; `-1` = the scene's own palette |
+| `seed`, `inverted` | Variation and colour inversion (inversion now also applies to default scene palettes) |
+| `key2`, `blend` | Optional second pattern blended in (patterns only) |
+| `w`, `h` | Output size, 16–4096. Landscape sizes use the 3840×2160 base, portrait sizes use 1290×2796; other aspect ratios are cover-cropped. |
+| `quality` | `thumb` renders on a proportionally smaller canvas (fast, for grids); `full` renders at base resolution, so it matches downloads exactly |
+| `fmt` | `webp` (default), `jpeg` or `png` |
+| `download` | `true` adds `Content-Disposition: attachment` |
 
-### Generate Wallpaper (Metadata Only)
-```bash
-POST /api/wallpapers/generate
-Content-Type: application/json
+Responses are immutable (`Cache-Control: public, max-age=31536000, immutable`) with an `ETag`; invalid parameters return 400.
 
-{
-  "pattern_type": "hills",
-  "palette_index": 0,
-  "seed": 12345,
-  "inverted": false
-}
-```
+### `GET /api/v2/stats`
 
-Response:
-```json
-{
-  "id": 12345,
-  "pattern_type": "hills",
-  "palette_index": 0,
-  "seed": 12345,
-  "inverted": false,
-  "created_at": "2024-01-01T00:00:00",
-  "updated_at": "2024-01-01T00:00:00"
-}
-```
+Render cache entries, bytes, hits and misses.
 
-### Get Preview Image
-```bash
-GET /api/wallpapers/preview?pattern_type=hills&palette_index=0&seed=12345&inverted=false&width=800&height=600
-```
+## v1 API (kept for older app builds)
 
-Returns: PNG image (800x600)
+`/health`, `/api/patterns`, `/api/palettes`, `/api/scenes`, `POST /api/wallpapers/generate`, `/api/wallpapers/preview`, `/api/wallpapers/scene`, `/api/wallpapers/download/{desktop|mobile}`. They now go through the same cached renderer, return real HTTP error codes (they previously returned `[{"error": …}, 500]` with status 200), and run in the thread pool instead of blocking the event loop.
 
-### Download Desktop Wallpaper (4K)
-```bash
-GET /api/wallpapers/download/desktop?pattern_type=hills&palette_index=0&seed=12345&inverted=false
-```
+## Performance notes
 
-Returns: PNG file (3840x2160)
-
-### Download Mobile Wallpaper
-```bash
-GET /api/wallpapers/download/mobile?pattern_type=hills&palette_index=0&seed=12345&inverted=false
-```
-
-Returns: PNG file (1290x2796)
-
-## Usage Examples
-
-### cURL
-
-```bash
-# Get patterns
-curl http://localhost:8000/api/patterns
-
-# Get palettes
-curl http://localhost:8000/api/palettes
-
-# Get preview
-curl "http://localhost:8000/api/wallpapers/preview?pattern_type=hills&palette_index=0&seed=12345" > preview.png
-
-# Download desktop
-curl "http://localhost:8000/api/wallpapers/download/desktop?pattern_type=hills&palette_index=0&seed=12345" > wallpaper_desktop.png
-
-# Download mobile
-curl "http://localhost:8000/api/wallpapers/download/mobile?pattern_type=hills&palette_index=0&seed=12345" > wallpaper_mobile.png
-```
-
-### Python
-
-```python
-import requests
-
-# Get preview
-response = requests.get(
-    "http://localhost:8000/api/wallpapers/preview",
-    params={
-        "pattern_type": "hills",
-        "palette_index": 0,
-        "seed": 12345,
-        "width": 800,
-        "height": 600
-    }
-)
-with open("preview.png", "wb") as f:
-    f.write(response.content)
-
-# Download desktop
-response = requests.get(
-    "http://localhost:8000/api/wallpapers/download/desktop",
-    params={
-        "pattern_type": "hills",
-        "palette_index": 0,
-        "seed": 12345
-    }
-)
-with open("wallpaper.png", "wb") as f:
-    f.write(response.content)
-```
-
-### JavaScript/Fetch
-
-```javascript
-// Get preview
-fetch('http://localhost:8000/api/wallpapers/preview?pattern_type=hills&palette_index=0&seed=12345')
-  .then(r => r.blob())
-  .then(blob => {
-    const url = URL.createObjectURL(blob);
-    const img = document.createElement('img');
-    img.src = url;
-    document.body.appendChild(img);
-  });
-
-// Download desktop
-fetch('http://localhost:8000/api/wallpapers/download/desktop?pattern_type=hills&palette_index=0&seed=12345')
-  .then(r => r.blob())
-  .then(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'wallpaper.png';
-    a.click();
-  });
-```
-
-## API Documentation
-
-Interactive API docs available at:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-## Architecture
-
-### Pattern Generation
-- **Seeded Random**: Uses Python's `random.Random(seed)` for reproducibility
-- **PIL/Pillow**: Image generation and drawing
-- **Deterministic**: Same parameters always produce same image
-
-### Patterns
-Each pattern generates unique visuals:
-- **Hills**: Sine wave based hills
-- **Waves**: Layered wave pattern
-- **Dunes**: Sand dune simulation
-- **Mountains**: Peak-based mountains
-- **Arcs**: Circular arc pattern
-- **Scribble**: Random line pattern
-- **Geometric**: Shapes (circles, rectangles, triangles)
-- **Noise**: Random colored squares
-- **Gradient**: Linear color gradient
-- **Cellular**: Grid-based cellular pattern
-
-### Color Palettes
-12 preset palettes with 4 colors each:
-- Charcoal, Stone, Ocean Blue, Sunrise, Fire, Purple
-- Neon, Arctic, Forest, Sunset, Deep Space, Tropical
-
-### Image Export
-- **PNG Format**: Lossless compression
-- **Resolutions**:
-  - Desktop: 3840x2160 (4K)
-  - Mobile: 1290x2796
-  - Preview: Custom size
-
-## Performance
-
-### Generation Times (Approximate)
-- Preview (800x600): 50-100ms
-- Desktop (3840x2160): 500-1000ms
-- Mobile (1290x2796): 300-600ms
-
-### Memory Usage
-- Preview: ~2-5 MB
-- Desktop: ~20-30 MB
-- Mobile: ~15-20 MB
-
-## Troubleshooting
-
-### Port 8000 Already in Use
-```bash
-# Use different port
-PORT=8001 python main.py
-
-# Or kill existing process
-lsof -i :8000
-kill -9 <PID>
-```
-
-### Module Not Found
-```bash
-pip install -r requirements.txt
-```
-
-### Image Generation Errors
-- Check pattern_type is valid
-- Check palette_index is 0-11
-- Check seed is positive integer
-
-## Development
-
-### Run with Auto-Reload
-```bash
-python main.py
-```
-
-### Format Code
-```bash
-pip install black
-black main.py pattern_engine.py
-```
-
-### Type Checking
-```bash
-pip install mypy
-mypy main.py pattern_engine.py
-```
-
-## Deployment
-
-### Docker
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-CMD ["python", "main.py"]
-```
-
-```bash
-docker build -t aurawall-backend .
-docker run -p 8000:8000 aurawall-backend
-```
-
-### Gunicorn (Production)
-```bash
-pip install gunicorn
-gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
-
-### Cloud Platforms
-- **Heroku**: `git push heroku main`
-- **Railway**: Connect GitHub repo
-- **Render**: Connect GitHub repo
-- **AWS**: Elastic Beanstalk, Lambda
-- **Google Cloud**: Cloud Run
+- Render handlers are sync `def`, so FastAPI runs CPU-bound work in its thread pool and health/catalog calls stay responsive during renders.
+- Thumbnails (`quality=thumb`) render ~10× faster than downscaling a full render.
+- Encoded images are cached in memory (160 MB budget); concurrent requests for the same image wait for a single render.
+- Clients and CDNs can cache every image forever because output is deterministic.
