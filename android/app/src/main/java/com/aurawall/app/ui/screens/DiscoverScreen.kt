@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -245,15 +246,94 @@ private fun DiscoverTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
 }
 
 @Composable
-fun BrandMark(size: Int) {
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size * .32f).dp)).background(Brand.Gradient), contentAlignment = Alignment.Center) {
-        // Four-petal bloom drawn with circles, echoing the launcher icon.
-        val petal = (size * .3f).dp
-        Box(Modifier.size(petal).graphicsLayer { translationY = -size * .28f * density }.clip(CircleShape).background(Color.White))
-        Box(Modifier.size(petal).graphicsLayer { translationY = size * .28f * density }.clip(CircleShape).background(Color.White))
-        Box(Modifier.size(petal).graphicsLayer { translationX = -size * .28f * density }.clip(CircleShape).background(Color.White))
-        Box(Modifier.size(petal).graphicsLayer { translationX = size * .28f * density }.clip(CircleShape).background(Color.White))
-        Box(Modifier.size((size * .26f).dp).clip(CircleShape).background(Brand.Violet))
+fun BrandMark(size: Int, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(size.dp).clip(CircleShape)) {
+        val s = this.size.width
+        // Background gradient matching ic_launcher_background.xml
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(Brand.Indigo, Brand.Violet, Brand.Pink),
+                start = androidx.compose.ui.geometry.Offset(s, 0f),
+                end = androidx.compose.ui.geometry.Offset(0f, s),
+            )
+        )
+        val cx = s / 2f
+        val cy = s / 2f
+        // Semi-transparent inner petals (rotated 45°) — same as the <group rotation="45"> layer
+        val soft = Color.White.copy(alpha = 0.4f)
+        val path = androidx.compose.ui.graphics.Path()
+        fun drawPetal(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float, x4: Float, y4: Float, color: Color) {
+            path.reset()
+            path.moveTo(cx + x1 * s, cy + y1 * s)
+            path.cubicTo(cx + x2 * s, cy + y2 * s, cx + x3 * s, cy + y3 * s, cx + x4 * s, cy + y4 * s)
+            path.cubicTo(cx + x3 * s, cy - y3 * s, cx + x2 * s, cy - y2 * s, cx + x1 * s, cy + y1 * s)
+            path.close()
+            drawPath(path, color)
+        }
+        // Viewport is 108, centre is 54. Scale factor = 1/108.
+        // Soft rotated petals (the <group rotation=45> layer)
+        val r = 1f / 108f
+        // Top-left petal (rotated)
+        run {
+            path.reset()
+            // M54,30 C62,38 62,46 54,54 C46,46 46,38 54,30 — translated to centre-relative
+            val pts = floatArrayOf(
+                0f, -24f,  8f, -16f,  8f, -8f,  0f, 0f,
+                -8f, -8f, -8f, -16f,  0f, -24f
+            )
+            path.moveTo(cx + pts[0]*r*s, cy + pts[1]*r*s)
+            path.cubicTo(cx+pts[2]*r*s, cy+pts[3]*r*s, cx+pts[4]*r*s, cy+pts[5]*r*s, cx+pts[6]*r*s, cy+pts[7]*r*s)
+            path.cubicTo(cx+pts[8]*r*s, cy+pts[9]*r*s, cx+pts[10]*r*s, cy+pts[11]*r*s, cx+pts[12]*r*s, cy+pts[13]*r*s)
+            path.close(); drawPath(path, soft)
+            // Right petal
+            path.reset()
+            path.moveTo(cx+24f*r*s, cy)
+            path.cubicTo(cx+16f*r*s, cy+8f*r*s, cx+8f*r*s, cy+8f*r*s, cx, cy)
+            path.cubicTo(cx+8f*r*s, cy-8f*r*s, cx+16f*r*s, cy-8f*r*s, cx+24f*r*s, cy)
+            path.close(); drawPath(path, soft)
+            // Bottom petal
+            path.reset()
+            path.moveTo(cx, cy+24f*r*s)
+            path.cubicTo(cx-8f*r*s, cy+16f*r*s, cx-8f*r*s, cy+8f*r*s, cx, cy)
+            path.cubicTo(cx+8f*r*s, cy+8f*r*s, cx+8f*r*s, cy+16f*r*s, cx, cy+24f*r*s)
+            path.close(); drawPath(path, soft)
+            // Left petal
+            path.reset()
+            path.moveTo(cx-24f*r*s, cy)
+            path.cubicTo(cx-16f*r*s, cy-8f*r*s, cx-8f*r*s, cy-8f*r*s, cx, cy)
+            path.cubicTo(cx-8f*r*s, cy+8f*r*s, cx-16f*r*s, cy+8f*r*s, cx-24f*r*s, cy)
+            path.close(); drawPath(path, soft)
+        }
+        // Solid upright petals — N/S/E/W (the 4 white <path> elements)
+        // M54,28 C64,38 64,48 54,56 C44,48 44,38 54,28  → centre-relative: (0,-26) cp(10,-16)(10,-6)(0,2)
+        run {
+            // North
+            path.reset()
+            path.moveTo(cx, cy - 26f*r*s)
+            path.cubicTo(cx+10f*r*s, cy-16f*r*s, cx+10f*r*s, cy-6f*r*s, cx, cy+2f*r*s)
+            path.cubicTo(cx-10f*r*s, cy-6f*r*s, cx-10f*r*s, cy-16f*r*s, cx, cy-26f*r*s)
+            path.close(); drawPath(path, Color.White)
+            // South
+            path.reset()
+            path.moveTo(cx, cy+26f*r*s)
+            path.cubicTo(cx-10f*r*s, cy+16f*r*s, cx-10f*r*s, cy+6f*r*s, cx, cy-2f*r*s)
+            path.cubicTo(cx+10f*r*s, cy+6f*r*s, cx+10f*r*s, cy+16f*r*s, cx, cy+26f*r*s)
+            path.close(); drawPath(path, Color.White)
+            // East
+            path.reset()
+            path.moveTo(cx+26f*r*s, cy)
+            path.cubicTo(cx+16f*r*s, cy+10f*r*s, cx+6f*r*s, cy+10f*r*s, cx-2f*r*s, cy)
+            path.cubicTo(cx+6f*r*s, cy-10f*r*s, cx+16f*r*s, cy-10f*r*s, cx+26f*r*s, cy)
+            path.close(); drawPath(path, Color.White)
+            // West
+            path.reset()
+            path.moveTo(cx-26f*r*s, cy)
+            path.cubicTo(cx-16f*r*s, cy-10f*r*s, cx-6f*r*s, cy-10f*r*s, cx+2f*r*s, cy)
+            path.cubicTo(cx-6f*r*s, cy+10f*r*s, cx-16f*r*s, cy+10f*r*s, cx-26f*r*s, cy)
+            path.close(); drawPath(path, Color.White)
+        }
+        // Centre dot — radius 7 from vector (A7,7)
+        drawCircle(Color(0xFF8B5CF6), 7f*r*s, center = androidx.compose.ui.geometry.Offset(cx, cy))
     }
 }
 

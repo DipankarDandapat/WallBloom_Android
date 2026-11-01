@@ -168,7 +168,8 @@ private fun StudioAction(label: String, icon: androidx.compose.ui.graphics.vecto
     ) {
         Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -282,7 +283,7 @@ private fun ToggleRow(title: String, subtitle: String, icon: androidx.compose.ui
         Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Switch(checked, onChange)

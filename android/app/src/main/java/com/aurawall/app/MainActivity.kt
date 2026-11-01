@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         var ready = false
-        // Hold the splash briefly while a cached catalog loads, so the first frame has content.
+        // Release the OS splash immediately; our SplashScreen composable handles the health gate.
         splash.setKeepOnScreenCondition { !ready }
         setContent {
             val vm: AppViewModel = viewModel(factory = AppViewModel.Factory)

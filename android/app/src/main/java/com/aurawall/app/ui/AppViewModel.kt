@@ -151,7 +151,10 @@ class AppViewModel(
         }
     }
 
-    fun checkServer() = viewModelScope.launch { _serverOnline.value = repository.health() }
+    fun checkServer() = viewModelScope.launch {
+        _serverOnline.value = null
+        _serverOnline.value = repository.health()
+    }
 
     // ------------------------------------------------------------------ feeds
 

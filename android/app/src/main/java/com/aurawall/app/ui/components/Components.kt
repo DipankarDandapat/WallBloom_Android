@@ -67,6 +67,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
@@ -282,13 +285,49 @@ fun PaletteStrip(colors: List<String>, modifier: Modifier = Modifier) {
 
 @Composable
 fun PaletteChip(palette: Palette?, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, label: String? = null, colors: List<String>? = null) {
-    val ring by animateDpAsState(if (selected) 2.dp else 0.dp, label = "palette-ring")
+    val ring by animateDpAsState(if (selected) 2.5.dp else 0.dp, label = "palette-ring")
+    val ringColor = MaterialTheme.colorScheme.primary
+    val separatorColor = MaterialTheme.colorScheme.background
+    val resolvedColors = (colors ?: palette?.colors.orEmpty()).ifEmpty { listOf("#444444", "#888888") }.map { parseColor(it) }
     Column(modifier.width(64.dp).clickable(role = Role.RadioButton, onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(52.dp).clip(CircleShape)
-                .border(ring, MaterialTheme.colorScheme.primary, CircleShape).padding(if (selected) 4.dp else 0.dp).clip(CircleShape)
-                .background(Brush.sweepGradient((colors ?: palette?.colors.orEmpty()).ifEmpty { listOf("#444444", "#888888") }.map { parseColor(it) }.let { it + it.first() })),
-        )
+        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            // Outer ring when selected
+            if (selected) {
+                Canvas(Modifier.size(52.dp)) {
+                    drawCircle(color = ringColor, radius = size.minDimension / 2f)
+                }
+            }
+            // Pie-slice segments with separator lines
+            Canvas(Modifier.size(if (selected) 44.dp else 52.dp).clip(CircleShape)) {
+                val n = resolvedColors.size
+                val sweep = 360f / n
+                val sep = if (n > 1) 1.5f else 0f
+                resolvedColors.forEachIndexed { i, color ->
+                    drawArc(
+                        color = color,
+                        startAngle = i * sweep + sep / 2f,
+                        sweepAngle = sweep - sep,
+                        useCenter = true,
+                        size = Size(size.width, size.height),
+                    )
+                }
+                // White separator lines between slices
+                if (n > 1) {
+                    repeat(n) { i ->
+                        val angle = Math.toRadians((i * sweep).toDouble())
+                        drawLine(
+                            color = separatorColor,
+                            start = center,
+                            end = Offset(
+                                center.x + (size.width / 2f) * Math.cos(angle).toFloat(),
+                                center.y + (size.height / 2f) * Math.sin(angle).toFloat(),
+                            ),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(5.dp))
         Text(
             label ?: palette?.name.orEmpty(), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,

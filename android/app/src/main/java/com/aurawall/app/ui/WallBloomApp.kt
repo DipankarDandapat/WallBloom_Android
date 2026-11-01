@@ -76,6 +76,7 @@ import com.aurawall.app.ui.screens.SavedScreen
 import com.aurawall.app.ui.screens.ScenesScreen
 import com.aurawall.app.ui.screens.SearchScreen
 import com.aurawall.app.ui.screens.SettingsScreen
+import com.aurawall.app.ui.screens.SplashScreen
 import com.aurawall.app.ui.screens.StudioScreen
 import com.aurawall.app.ui.theme.Brand
 import kotlinx.coroutines.delay
@@ -88,6 +89,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 object Routes {
+    const val SPLASH = "splash"
     const val HOME = "home"
     const val PREVIEW = "preview"
     const val SEARCH = "search"
@@ -122,12 +124,19 @@ fun WallBloomApp(vm: AppViewModel) {
         SharedTransitionLayout {
             CompositionLocalProvider(LocalSharedTransitionScope provides this) {
                 NavHost(
-                    nav, startDestination = Routes.HOME,
+                    nav, startDestination = Routes.SPLASH,
                     enterTransition = { slideInHorizontally(tween(320)) { it / 5 } + fadeIn(tween(320)) },
                     exitTransition = { fadeOut(tween(220)) },
                     popEnterTransition = { fadeIn(tween(280)) },
                     popExitTransition = { slideOutHorizontally(tween(280)) { it / 5 } + fadeOut(tween(240)) },
                 ) {
+                    composable(Routes.SPLASH) {
+                        SplashScreen(vm) {
+                            nav.navigate(Routes.HOME) {
+                                popUpTo(Routes.SPLASH) { inclusive = true }
+                            }
+                        }
+                    }
                     composable(Routes.HOME) {
                         CompositionLocalProvider(LocalNavAnimatedScope provides this) {
                             HomeShell(vm, navigator, tab) { tab = it }

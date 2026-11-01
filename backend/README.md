@@ -6,7 +6,7 @@ Stateless, deterministic wallpaper renderer. No authentication, no database.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt    # runtime deps + pytest/httpx
+pip install -r requirements.txt    # runtime deps + pytest/httpx
 python main.py                         # PORT (default 8000), DEBUG=true enables reload
 python -m pytest -q
 ```
