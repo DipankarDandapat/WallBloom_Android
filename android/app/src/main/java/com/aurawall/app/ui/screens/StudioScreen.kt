@@ -103,7 +103,7 @@ fun StudioScreen(vm: AppViewModel, navigator: AppNavigator) {
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = NavBarClearance),
+        .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = NavBarClearance + 32.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Column {

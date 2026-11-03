@@ -84,7 +84,7 @@ import kotlin.random.Random
 @Composable
 fun SubScreenTopBar(title: String, onBack: () -> Unit, subtitle: String? = null, leading: (@Composable () -> Unit)? = null, actions: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+        IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground) }
         leading?.let { it(); Spacer(Modifier.width(10.dp)) }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)

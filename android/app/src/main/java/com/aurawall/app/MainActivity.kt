@@ -9,6 +9,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aurawall.app.ui.AppViewModel
@@ -21,6 +23,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Draw behind both bars — content uses statusBarsPadding / navigationBarsPadding itself.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         var ready = false
         // Release the OS splash immediately; our SplashScreen composable handles the health gate.
         splash.setKeepOnScreenCondition { !ready }
@@ -38,8 +42,14 @@ class MainActivity : ComponentActivity() {
             WallBloomTheme(settings) {
                 val dark = isDarkTheme(settings)
                 DisposableEffect(dark) {
-                    val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                    val style = if (dark) SystemBarStyle.dark(Color.TRANSPARENT)
+                                else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                    // Ensure status bar icons are always visible (white on dark, dark on light)
+                    WindowInsetsControllerCompat(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !dark
+                        isAppearanceLightNavigationBars = !dark
+                    }
                     onDispose { }
                 }
                 WallBloomApp(vm)

@@ -246,7 +246,10 @@ class AppViewModel(
 
     fun apply(w: Wallpaper, target: WallpaperTarget) = runAction(w, ActionKind.APPLY) {
         val (width, height) = device.screenSize()
-        val bytes = repository.bytes(urls.image(w, width, height, Quality.FULL, ImageFormat.PNG))
+        // Cap to PHONE_BASE so we never request a larger render than the standard base size.
+        val w2 = minOf(width, RenderSizes.PHONE_BASE.first)
+        val h2 = minOf(height, RenderSizes.PHONE_BASE.second)
+        val bytes = repository.bytes(urls.image(w, w2, h2, Quality.FULL, ImageFormat.PNG))
         device.setWallpaper(bytes, target)
         when (target) {
             WallpaperTarget.HOME -> "Home screen wallpaper set"

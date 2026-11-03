@@ -624,13 +624,14 @@ def hex_to_rgb(hex_color):
 
 def _sky_gradient(draw, width, height, colors):
     """Shared helper: draw a vertical sky gradient from colors[0] to colors[1]"""
+    import numpy as np
     c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        ratio = y / height
-        r = int(c1[0] * (1 - ratio) + c2[0] * ratio)
-        g = int(c1[1] * (1 - ratio) + c2[1] * ratio)
-        b = int(c1[2] * (1 - ratio) + c2[2] * ratio)
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
+    t = np.linspace(0, 1, height)[:, None]
+    arr = (np.array(c1) * (1 - t) + np.array(c2) * t).astype(np.uint8)
+    arr = np.repeat(arr[:, None, :], width, axis=1)
+    from PIL import Image as _Image
+    gradient = _Image.fromarray(arr, mode="RGB")
+    draw._image.paste(gradient, (0, 0))
 
 
 def _wavy_band(draw, width, height, band_y, amplitude, frequency, color):

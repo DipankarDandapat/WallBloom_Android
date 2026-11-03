@@ -240,8 +240,8 @@ private fun DiscoverTopBar(onSearch: () -> Unit, onSettings: () -> Unit) {
         BrandMark(36)
         Spacer(Modifier.width(10.dp))
         Text("WallBloom", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f))
-        IconButton(onSearch) { Icon(Icons.Rounded.Search, "Search wallpapers") }
-        IconButton(onSettings) { Icon(Icons.Rounded.Settings, "Settings") }
+        IconButton(onSearch) { Icon(Icons.Rounded.Search, "Search wallpapers", tint = MaterialTheme.colorScheme.onBackground) }
+        IconButton(onSettings) { Icon(Icons.Rounded.Settings, "Settings", tint = MaterialTheme.colorScheme.onBackground) }
     }
 }
 

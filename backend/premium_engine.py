@@ -260,7 +260,7 @@ def flow_lines(width, height, colors, rng):
     """Hundreds of fine strokes tracing a smooth flow field."""
     cols = _sorted_by_luma(colors)
     bg = _mix(cols[0], np.zeros(3), 0.3)
-    ss = 2  # supersample for anti-aliased strokes
+    ss = 2 if max(width, height) <= 800 else 1  # skip supersampling at high res
     W, H = width * ss, height * ss
     img = Image.new("RGB", (W, H), _tuple(bg))
     d = ImageDraw.Draw(img)

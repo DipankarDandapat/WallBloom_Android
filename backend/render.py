@@ -105,9 +105,9 @@ def pattern_colors(palette: int, inverted: bool):
     return [invert_color(c) for c in colors] if inverted else list(colors)
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=64)
 def _canvas(kind, key, palette, seed, inverted, key2, blend, cw, ch) -> Image.Image:
-    """Raw render on the base (or scaled thumbnail) canvas. Small cache: these are large."""
+    """Raw render on the base (or scaled thumbnail) canvas."""
     if kind == "scene":
         return generate_scene(cw, ch, key, scene_colors(key, palette, inverted), seed)
     if key2:
@@ -153,7 +153,7 @@ class _ByteLRU:
             return {"entries": len(self.items), "bytes": self.size, "hits": self.hits, "misses": self.misses}
 
 
-_cache = _ByteLRU(160 * 1024 * 1024)
+_cache = _ByteLRU(512 * 1024 * 1024)
 # Concurrent requests for the same image wait for one render instead of
 # rendering it several times (a grid often asks for the same thumbnail twice).
 _inflight_lock = threading.Lock()

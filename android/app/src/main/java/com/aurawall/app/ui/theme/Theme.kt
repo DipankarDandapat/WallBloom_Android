@@ -1,6 +1,5 @@
 package com.aurawall.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -93,15 +92,11 @@ private val AppTypography = Typography().run {
 val Caption = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp)
 
 @Composable
-fun isDarkTheme(settings: Settings): Boolean = when (settings.theme) {
-    ThemeMode.SYSTEM -> isSystemInDarkTheme()
-    ThemeMode.DARK -> true
-    ThemeMode.LIGHT -> false
-}
+fun isDarkTheme(settings: Settings): Boolean = settings.theme == ThemeMode.DARK
 
 @Composable
 fun WallBloomTheme(settings: Settings, content: @Composable () -> Unit) {
-    val dark = isDarkTheme(settings)
+    val dark = settings.theme == ThemeMode.DARK
     MaterialTheme(
         colorScheme = if (dark) darkScheme(settings.amoled) else LightScheme,
         typography = AppTypography,

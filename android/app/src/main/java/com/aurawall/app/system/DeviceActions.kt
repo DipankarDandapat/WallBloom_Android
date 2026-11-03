@@ -44,17 +44,20 @@ class DeviceActions(private val context: Context) {
     suspend fun setWallpaper(bytes: ByteArray, target: WallpaperTarget) = withContext(Dispatchers.IO) {
         val manager = WallpaperManager.getInstance(context)
         if (!manager.isWallpaperSupported || !manager.isSetWallpaperAllowed) throw IOException("This device does not allow changing the wallpaper")
-        // Decoding first validates the image so a bad response never blanks the wallpaper.
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw IOException("Could not decode wallpaper")
+        // Validate the bytes decode before touching the wallpaper manager.
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw IOException("Could not decode wallpaper image")
         val flags = when (target) {
             WallpaperTarget.HOME -> WallpaperManager.FLAG_SYSTEM
             WallpaperTarget.LOCK -> WallpaperManager.FLAG_LOCK
             WallpaperTarget.BOTH -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
         }
-        try {
-            manager.setBitmap(bitmap, null, true, flags)
-        } finally {
-            bitmap.recycle()
+        // setStream avoids holding a full decoded Bitmap in memory and works around
+        // the binder 1 MB transaction limit that causes setBitmap to crash on some devices.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            manager.setStream(ByteArrayInputStream(bytes), null, true, flags)
+        } else {
+            @Suppress("DEPRECATION")
+            manager.setStream(ByteArrayInputStream(bytes))
         }
     }
 

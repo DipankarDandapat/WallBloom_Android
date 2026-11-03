@@ -14,32 +14,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.CleaningServices
-import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LightMode
-import androidx.compose.material.icons.rounded.PhoneAndroid
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -48,11 +41,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import com.aurawall.app.BuildConfig
-import com.aurawall.app.data.ApiMode
 import com.aurawall.app.data.ThemeMode
 import com.aurawall.app.ui.AppViewModel
 import com.aurawall.app.ui.components.SegmentedPill
-import com.aurawall.app.ui.theme.Brand
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,10 +52,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val online by vm.serverOnline.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { vm.checkServer() }
+    val isDark = settings.theme == ThemeMode.DARK
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         SubScreenTopBar("Settings", onBack)
@@ -73,15 +63,22 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Group("Appearance") {
-                Text("Theme", style = MaterialTheme.typography.titleSmall)
+                Text("Theme", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.size(10.dp))
                 SegmentedPill(
-                    listOf(ThemeMode.SYSTEM to "Auto", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark"), settings.theme, vm::setTheme,
-                    icons = listOf(Icons.Rounded.Brightness6, Icons.Rounded.LightMode, Icons.Rounded.DarkMode), modifier = Modifier.fillMaxWidth(),
+                    listOf(ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark"), settings.theme, vm::setTheme,
+                    icons = listOf(Icons.Rounded.LightMode, Icons.Rounded.DarkMode), modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.size(6.dp))
-                SettingRow(Icons.Rounded.Contrast, "AMOLED black", "Pure black backgrounds in dark mode", onClick = { vm.setAmoled(!settings.amoled) }) {
-                    Switch(settings.amoled, vm::setAmoled)
+                // AMOLED only enabled when dark mode is active
+                SettingRow(
+                    Icons.Rounded.Contrast,
+                    "AMOLED black",
+                    if (isDark) "Pure black backgrounds" else "Only available in Dark mode",
+                    onClick = if (isDark) ({ vm.setAmoled(!settings.amoled) }) else null,
+                    modifier = if (!isDark) Modifier.alpha(0.4f) else Modifier,
+                ) {
+                    Switch(checked = settings.amoled && isDark, onCheckedChange = if (isDark) { v -> vm.setAmoled(v) } else null, enabled = isDark)
                 }
             }
             Group("Storage") {
@@ -92,19 +89,6 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         vm.notify("Image cache cleared")
                     }
                 })
-            }
-            Group("Wallpaper engine") {
-                SettingRow(
-                    Icons.Rounded.Cloud, vm.baseUrl.removePrefix("https://").removePrefix("http://").trimEnd('/'),
-                    when (online) { true -> "Online · ${if (vm.apiMode == ApiMode.V2) "API v2" else "Legacy API v1"}"; false -> "Unreachable"; null -> "Checking…" },
-                    trailing = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(when (online) { true -> Brand.Success; false -> Brand.Danger; null -> Color.Gray }))
-                            IconButton(vm::checkServer) { Icon(Icons.Rounded.Refresh, "Check server") }
-                        }
-                    },
-                )
-                SettingRow(Icons.Rounded.PhoneAndroid, "Wallpaper resolution", vm.device.screenSize().let { (w, h) -> "Rendered for this screen at ${w}×$h" })
             }
             Group("About") {
                 SettingRow(Icons.Rounded.Info, "WallBloom ${BuildConfig.VERSION_NAME}", "Procedural wallpapers, generated on demand. No account needed.")
@@ -122,10 +106,18 @@ private fun Group(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingRow(icon: ImageVector, title: String, subtitle: String, onClick: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier).padding(vertical = 8.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
@@ -133,7 +125,7 @@ private fun SettingRow(icon: ImageVector, title: String, subtitle: String, onCli
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         trailing?.invoke()

@@ -37,8 +37,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -149,6 +152,7 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
     var recolor by remember { mutableStateOf(false) }
     var applySheet by remember { mutableStateOf(false) }
     var infoSheet by remember { mutableStateOf(false) }
+    var previewLoading by remember(item.id) { mutableStateOf(false) }
     val isFavorite = favorites.any { it.id == item.id }
 
     ImmersiveMode()
@@ -171,6 +175,7 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
                 vm, pageItem, orientation, key,
                 onTap = { chrome = !chrome },
                 onZoomChange = { if (page == pager.currentPage) zoomed = it },
+                onLoadingChange = { if (page == pager.currentPage) previewLoading = it },
             )
         }
 
@@ -179,7 +184,7 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
         // Soft scrims keep controls legible on bright wallpapers.
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f), Color.Transparent))))
+                Box(Modifier.fillMaxWidth().height(200.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f), Color.Transparent))))
                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(300.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .7f)))))
             }
         }
@@ -188,7 +193,14 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
             chrome, enter = fadeIn() + slideInVertically { -it / 2 }, exit = fadeOut() + slideOutVertically { -it / 2 },
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // safeDrawing respects both the status bar height and the display cutout (punch-hole
+            // / pill camera), so buttons are never hidden behind the camera on any device.
+            val safeTop = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
+            Row(
+                Modifier.fillMaxWidth()
+                    .padding(top = safeTop + 8.dp, start = 12.dp, end = 12.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", onBack)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -219,12 +231,16 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 AnimatedVisibility(recolor && catalog != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     if (catalog != null) RecolorRow(catalog, item) { paletteId ->
+                        previewLoading = true
                         vm.replacePreviewItem(pager.currentPage, rebuild(catalog, item, palette = paletteId))
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                    QuickChip(Icons.Rounded.Casino, "Shuffle") {
-                        if (catalog != null) vm.replacePreviewItem(pager.currentPage, rebuild(catalog, item, seed = Random.nextInt(100_000, 999_999)))
+                    QuickChip(Icons.Rounded.Casino, "Shuffle", loading = previewLoading) {
+                        if (catalog != null && !previewLoading) {
+                            previewLoading = true
+                            vm.replacePreviewItem(pager.currentPage, rebuild(catalog, item, seed = Random.nextInt(100_000, 999_999)))
+                        }
                     }
                     QuickChip(Icons.Rounded.Palette, "Recolour", active = recolor) { recolor = !recolor }
                     QuickChip(Icons.Rounded.Info, "Details") { infoSheet = true }
@@ -267,6 +283,7 @@ private fun ZoomableWallpaper(
     sharedKey: String?,
     onTap: () -> Unit,
     onZoomChange: (Boolean) -> Unit,
+    onLoadingChange: (Boolean) -> Unit = {},
 ) {
     var scale by remember(item.id) { mutableFloatStateOf(1f) }
     var offset by remember(item.id) { mutableStateOf(Offset.Zero) }
@@ -279,8 +296,11 @@ private fun ZoomableWallpaper(
     val phone = orientation == Orientation.PHONE
     val thumbUrl = vm.urls.thumb(item, orientation)
     val (w, h) = if (phone) vm.device.screenSize() else RenderSizes.DESKTOP_VIEW
-    val fullUrl = vm.urls.image(item, w, h, Quality.FULL)
+    val fullUrl = vm.urls.image(item, w, h, Quality.THUMB)
     val context = LocalContext.current
+    var imageLoading by remember(fullUrl) { mutableStateOf(true) }
+
+    LaunchedEffect(imageLoading) { onLoadingChange(imageLoading) }
 
     Box(
         Modifier.fillMaxSize()
@@ -305,12 +325,30 @@ private fun ZoomableWallpaper(
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context).data(fullUrl).memoryCacheKey(fullUrl)
-                    // The grid thumbnail is already in memory: show it instantly, then sharpen.
                     .placeholderMemoryCacheKey(thumbUrl).crossfade(300).build(),
                 contentDescription = item.name,
                 contentScale = if (phone) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
+                onState = { imageLoading = it is coil.compose.AsyncImagePainter.State.Loading || it is coil.compose.AsyncImagePainter.State.Empty },
             )
+        }
+        // Loading indicator shown while palette/seed change is rendering on the server
+        androidx.compose.animation.AnimatedVisibility(
+            visible = imageLoading,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            androidx.compose.material3.Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.55f),
+            ) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.padding(16.dp).size(36.dp),
+                    color = Color.White,
+                    strokeWidth = 3.dp,
+                )
+            }
         }
     }
 }
@@ -376,16 +414,23 @@ private fun FavoriteButton(active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun QuickChip(icon: ImageVector, label: String, active: Boolean = false, onClick: () -> Unit) {
+private fun QuickChip(icon: ImageVector, label: String, active: Boolean = false, loading: Boolean = false, onClick: () -> Unit) {
     Surface(
-        onClick = onClick, shape = RoundedCornerShape(50),
+        onClick = onClick, shape = RoundedCornerShape(50), enabled = !loading,
         color = if (active) Color.White.copy(alpha = .28f) else Color.Black.copy(alpha = .35f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .16f)),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
+            androidx.compose.animation.AnimatedContent(
+                loading, transitionSpec = { scaleIn() togetherWith scaleOut() }, label = label,
+            ) { busy ->
+                if (busy) androidx.compose.material3.CircularProgressIndicator(
+                    Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp,
+                )
+                else Icon(icon, null, tint = Color.White.copy(alpha = if (loading) .4f else 1f), modifier = Modifier.size(16.dp))
+            }
             Spacer(Modifier.width(6.dp))
-            Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
+            Text(label, color = Color.White.copy(alpha = if (loading) .5f else 1f), style = MaterialTheme.typography.labelLarge)
         }
     }
 }
