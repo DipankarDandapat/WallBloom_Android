@@ -249,18 +249,23 @@ fun PreviewScreen(vm: AppViewModel, origin: String, onBack: () -> Unit) {
                     val downloading = busy?.let { it.kind == ActionKind.DOWNLOAD && it.wallpaperId == item.id } == true
                     val sharing = busy?.let { it.kind == ActionKind.SHARE && it.wallpaperId == item.id } == true
                     val applying = busy?.let { it.kind == ActionKind.APPLY && it.wallpaperId == item.id } == true
+                    val downloadProgress = busy?.takeIf { it.kind == ActionKind.DOWNLOAD && it.wallpaperId == item.id }?.progress
+                    val shareProgress = busy?.takeIf { it.kind == ActionKind.SHARE && it.wallpaperId == item.id }?.progress
                     if (phone) {
-                        RoundAction(Icons.Rounded.Download, "Download", downloading, download)
+                        RoundAction(Icons.Rounded.Download, "Download", downloading, downloadProgress, download)
                         PrimaryGradientButton("Set wallpaper", Icons.Rounded.Wallpaper, onClick = { applySheet = true }, loading = applying, modifier = Modifier.weight(1f))
                     } else {
                         PrimaryGradientButton("Download 4K", Icons.Rounded.Download, onClick = download, loading = downloading, modifier = Modifier.weight(1f))
                     }
-                    RoundAction(Icons.Rounded.Share, "Share", sharing) { vm.share(item, orientation) { intent -> context.startActivity(intent) } }
+                    RoundAction(Icons.Rounded.Share, "Share", sharing, shareProgress) { vm.share(item, orientation) { intent -> context.startActivity(intent) } }
                 }
             }
         }
 
-        if (busy?.kind == ActionKind.APPLY) BusyOverlay("Setting wallpaper…")
+        if (busy?.kind == ActionKind.APPLY) {
+            val applyProgress = busy?.takeIf { it.kind == ActionKind.APPLY }?.progress
+            BusyOverlay("Setting wallpaper…", applyProgress)
+        }
     }
 
     if (applySheet) ApplySheet(onDismiss = { applySheet = false }) { target ->
@@ -294,11 +299,12 @@ private fun ZoomableWallpaper(
         onZoomChange(scale > 1.01f)
     }
     val phone = orientation == Orientation.PHONE
-    val thumbUrl = vm.urls.thumb(item, orientation)
-    val (w, h) = if (phone) vm.device.screenSize() else RenderSizes.DESKTOP_VIEW
-    val fullUrl = vm.urls.image(item, w, h, Quality.THUMB)
+    val thumbUrl = vm.urls.thumb(item, orientation)  // 540×1170 — already in memory cache from the grid
+    val (w, h) = if (phone) RenderSizes.PHONE_THUMB else RenderSizes.DESKTOP_THUMB
+    val fullUrl = vm.urls.image(item, w, h, Quality.THUMB)  // same URL as grid thumb → instant cache hit
     val context = LocalContext.current
-    var imageLoading by remember(fullUrl) { mutableStateOf(true) }
+    // Start false so we don't flash a spinner when the image is already cached
+    var imageLoading by remember(fullUrl) { mutableStateOf(false) }
 
     LaunchedEffect(imageLoading) { onLoadingChange(imageLoading) }
 
@@ -325,11 +331,13 @@ private fun ZoomableWallpaper(
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context).data(fullUrl).memoryCacheKey(fullUrl)
-                    .placeholderMemoryCacheKey(thumbUrl).crossfade(300).build(),
+                    .crossfade(200).build(),
                 contentDescription = item.name,
                 contentScale = if (phone) ContentScale.Crop else ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
-                onState = { imageLoading = it is coil.compose.AsyncImagePainter.State.Loading || it is coil.compose.AsyncImagePainter.State.Empty },
+                onState = { state ->
+                    imageLoading = state is coil.compose.AsyncImagePainter.State.Loading
+                },
             )
         }
         // Loading indicator shown while palette/seed change is rendering on the server
@@ -436,15 +444,25 @@ private fun QuickChip(icon: ImageVector, label: String, active: Boolean = false,
 }
 
 @Composable
-private fun RoundAction(icon: ImageVector, label: String, loading: Boolean, onClick: () -> Unit) {
+private fun RoundAction(icon: ImageVector, label: String, loading: Boolean, progress: Float? = null, onClick: () -> Unit) {
     Surface(
         onClick = onClick, enabled = !loading, shape = RoundedCornerShape(18.dp), modifier = Modifier.size(54.dp),
         color = Color.White.copy(alpha = .16f), border = BorderStroke(1.dp, Color.White.copy(alpha = .2f)),
     ) {
         Box(contentAlignment = Alignment.Center) {
             AnimatedContent(loading, transitionSpec = { scaleIn() togetherWith scaleOut() }, label = label) { busy ->
-                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                else Icon(icon, label, tint = Color.White)
+                if (busy) {
+                    if (progress != null && progress > 0f) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                    }
+                } else Icon(icon, label, tint = Color.White)
             }
         }
     }
@@ -466,13 +484,37 @@ private fun PaletteRowDark(catalog: Catalog, item: Wallpaper, onPick: (Int) -> U
 }
 
 @Composable
-private fun BusyOverlay(text: String) {
+private fun BusyOverlay(text: String, progress: Float?) {
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .45f)).clickable(enabled = true, onClick = {}), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Row(Modifier.padding(horizontal = 24.dp, vertical = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                Spacer(Modifier.width(16.dp))
-                Text(text, style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 20.dp).width(220.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (progress == null || progress == 0f) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                    } else {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.5.dp,
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Text(text, style = MaterialTheme.typography.titleSmall)
+                }
+                if (progress != null && progress > 0f) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                        )
+                        Text(
+                            "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.End),
+                        )
+                    }
+                }
             }
         }
     }

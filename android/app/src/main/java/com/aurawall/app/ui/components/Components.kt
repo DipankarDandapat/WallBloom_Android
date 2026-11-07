@@ -46,11 +46,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -161,6 +164,23 @@ fun WallpaperCard(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) .955f else 1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium), label = "card-press")
     var loading by remember(url) { mutableStateOf(true) }
+    var failed by remember(url) { mutableStateOf(false) }
+    var retryKey by remember(url) { mutableIntStateOf(0) }
+    var readyToLoad by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(url) {
+        delay(120)
+        readyToLoad = true
+    }
+    // Retry on error only while the card is still on screen.
+    // LaunchedEffect is cancelled automatically when the card leaves composition
+    // (user scrolls away), so retries never fire off-screen.
+    LaunchedEffect(failed, retryKey) {
+        if (failed && retryKey < 3) {
+            delay(1_000L * (retryKey + 1))  // 1 s, 2 s, 3 s
+            failed = false
+            retryKey++
+        }
+    }
     val haptics = LocalHapticFeedback.current
     val shape = RoundedCornerShape(corner)
     val fallback = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -180,13 +200,22 @@ fun WallpaperCard(
                 onClick = onClick,
             ),
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current).data(url).memoryCacheKey(url).build(),
-            contentDescription = item.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-            onState = { loading = it is AsyncImagePainter.State.Loading || it is AsyncImagePainter.State.Empty },
-        )
+        if (readyToLoad) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(url)
+                    // Include retryKey in cache key so each retry fetches fresh from network.
+                    .memoryCacheKey(if (retryKey == 0) url else "$url#$retryKey")
+                    .build(),
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onState = { state ->
+                    loading = state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty
+                    if (state is AsyncImagePainter.State.Error) failed = true
+                },
+            )
+        }
         if (loading) Box(Modifier.fillMaxSize().shimmer())
         if (showLabel) {
             Box(

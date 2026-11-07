@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.aurawall.app.WallBloomApplication
 import com.aurawall.app.data.ApiMode
 import com.aurawall.app.data.Catalog
+import com.aurawall.app.data.HttpException
 import com.aurawall.app.data.ImageFormat
 import com.aurawall.app.data.Kind
 import com.aurawall.app.data.Orientation
@@ -51,7 +52,7 @@ data class FeedState(
 )
 
 enum class ActionKind { DOWNLOAD, APPLY, SHARE }
-data class ActionProgress(val wallpaperId: String, val kind: ActionKind)
+data class ActionProgress(val wallpaperId: String, val kind: ActionKind, val progress: Float? = null)
 
 data class UiMessage(val text: String, val isError: Boolean = false, val id: Long = System.nanoTime())
 
@@ -236,20 +237,19 @@ class AppViewModel(
 
     // ------------------------------------------------------------------ device actions
 
-    fun download(w: Wallpaper, orientation: Orientation) = runAction(w, ActionKind.DOWNLOAD) {
+    fun download(w: Wallpaper, orientation: Orientation) = runAction(w, ActionKind.DOWNLOAD) { progress ->
         val (width, height) = RenderSizes.base(orientation)
-        val bytes = repository.bytes(urls.image(w, width, height, Quality.FULL, ImageFormat.PNG, download = true))
+        val bytes = repository.bytesWithProgress(urls.image(w, width, height, Quality.FULL, ImageFormat.PNG, download = true), progress)
         device.saveToGallery(bytes, fileName(w, width, height, "png"), "image/png")
         val label = if (orientation == Orientation.DESKTOP) "4K desktop wallpaper" else "Wallpaper"
         "$label saved to Pictures/${DeviceActions.FOLDER}"
     }
 
-    fun apply(w: Wallpaper, target: WallpaperTarget) = runAction(w, ActionKind.APPLY) {
+    fun apply(w: Wallpaper, target: WallpaperTarget) = runAction(w, ActionKind.APPLY) { progress ->
         val (width, height) = device.screenSize()
-        // Cap to PHONE_BASE so we never request a larger render than the standard base size.
         val w2 = minOf(width, RenderSizes.PHONE_BASE.first)
         val h2 = minOf(height, RenderSizes.PHONE_BASE.second)
-        val bytes = repository.bytes(urls.image(w, w2, h2, Quality.FULL, ImageFormat.PNG))
+        val bytes = repository.bytesWithProgress(urls.image(w, w2, h2, Quality.FULL, ImageFormat.PNG), progress)
         device.setWallpaper(bytes, target)
         when (target) {
             WallpaperTarget.HOME -> "Home screen wallpaper set"
@@ -258,24 +258,30 @@ class AppViewModel(
         }
     }
 
-    fun share(w: Wallpaper, orientation: Orientation, launch: (Intent) -> Unit) = runAction(w, ActionKind.SHARE) {
+    fun share(w: Wallpaper, orientation: Orientation, launch: (Intent) -> Unit) = runAction(w, ActionKind.SHARE) { progress ->
         val (width, height) = if (orientation == Orientation.PHONE) RenderSizes.PHONE_BASE else RenderSizes.DESKTOP_VIEW
-        val bytes = repository.bytes(urls.image(w, width, height, Quality.FULL, ImageFormat.PNG))
+        val bytes = repository.bytesWithProgress(urls.image(w, width, height, Quality.FULL, ImageFormat.PNG), progress)
         launch(device.shareIntent(bytes, fileName(w, width, height, "png"), "image/png", "${w.name} · made with WallBloom"))
         null
     }
 
-    private fun runAction(w: Wallpaper, kind: ActionKind, block: suspend () -> String?) {
+    private fun runAction(w: Wallpaper, kind: ActionKind, block: suspend (onProgress: (Float) -> Unit) -> String?) {
         if (_busy.value != null) return
-        _busy.value = ActionProgress(w.id, kind)
+        _busy.value = ActionProgress(w.id, kind, progress = 0f)
         viewModelScope.launch {
             try {
-                block()?.let { _messages.send(UiMessage(it)) }
+                block { fraction ->
+                    _busy.value = ActionProgress(w.id, kind, progress = fraction)
+                }?.let { _messages.send(UiMessage(it)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 val verb = when (kind) { ActionKind.DOWNLOAD -> "Download"; ActionKind.APPLY -> "Setting wallpaper"; ActionKind.SHARE -> "Sharing" }
-                _messages.send(UiMessage("$verb failed: ${e.message ?: "check your connection"}", isError = true))
+                val detail = when {
+                    e is HttpException && e.code == 503 -> "Server busy, please try again in a moment"
+                    else -> e.message ?: "check your connection"
+                }
+                _messages.send(UiMessage("$verb failed: $detail", isError = true))
             } finally {
                 _busy.value = null
             }

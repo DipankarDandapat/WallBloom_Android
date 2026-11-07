@@ -24,7 +24,7 @@ from pydantic import BaseModel
 import catalog as catalog_module
 import render as render_service
 from pattern_engine import PRESET_PALETTES, PatternType
-from render import DESKTOP_BASE, MOBILE_BASE, RenderError, RenderSpec
+from render import DESKTOP_BASE, MOBILE_BASE, RenderBusy, RenderError, RenderSpec
 from scene_engine import SCENE_DEFINITIONS
 
 logging.basicConfig(level=logging.INFO)
@@ -35,14 +35,19 @@ IMMUTABLE = "public, max-age=31536000, immutable"
 
 
 def _warm_cache():
-    """Pre-render today's hero and first feed page thumbnails after start-up."""
+    """Pre-render hero + first feed page thumbnails after start-up.
+    Results are written to both memory and disk cache so they survive restarts.
+    """
     try:
-        items = catalog_module.hero() + catalog_module.feed(page=0, page_size=12)
+        items = catalog_module.hero() + catalog_module.feed(page=0, page_size=24)
+        warmed = 0
         for item in items:
-            render_service.render(RenderSpec(kind=item["kind"], key=item["key"], palette=item["palette"],
-                                             seed=item["seed"], width=540, height=1170, quality="thumb"))
-        logger.info("✓ Warmed %d thumbnails", len(items))
-    except Exception:  # warm-up is best effort
+            spec = RenderSpec(kind=item["kind"], key=item["key"], palette=item["palette"],
+                              seed=item["seed"], width=540, height=1170, quality="thumb", fmt="webp")
+            render_service.render(spec)  # writes memory + disk cache
+            warmed += 1
+        logger.info("✓ Warmed %d thumbnails", warmed)
+    except Exception:
         logger.exception("Cache warm-up failed")
 
 
@@ -74,6 +79,15 @@ app.add_middleware(
 @app.exception_handler(RenderError)
 async def render_error_handler(_: Request, exc: RenderError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(RenderBusy)
+async def render_busy_handler(_: Request, exc: RenderBusy):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "2"},
+    )
 
 
 def _image_response(spec: RenderSpec, request: Request, filename: Optional[str] = None) -> Response:
@@ -308,4 +322,7 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 8000)),
         reload=os.getenv("DEBUG", "False").lower() == "true",
         log_level="info",
+        # Each sync render handler runs in a thread. Default is 40; raise it so
+        # requests don't queue waiting for a thread while renders are in progress.
+        workers=1,  # single process — shared memory cache stays consistent
     )

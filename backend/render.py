@@ -8,11 +8,13 @@ and downscaling; full-quality renders always use the fixed base resolution so
 previews, wallpapers and downloads match exactly.
 """
 
+import os
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
+from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageOps
@@ -36,9 +38,18 @@ FORMATS = {
     "png": ("PNG", "image/png"),
 }
 
+# Max simultaneous CPU-bound renders. Thumb requests beyond this cap get an
+# immediate 503 so the client retries quickly instead of waiting in a long queue.
+_MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT_RENDERS", "4"))
+_render_sem = threading.Semaphore(_MAX_CONCURRENT)
+
 
 class RenderError(ValueError):
     """Invalid render parameters (maps to HTTP 400/404)."""
+
+
+class RenderBusy(Exception):
+    """Server is at render capacity — maps to HTTP 503."""
 
 
 @dataclass(frozen=True)
@@ -89,7 +100,15 @@ class RenderSpec:
             return bw, bh
         scale = max(self.width / bw, self.height / bh)
         scale = min(1.0, max(THUMB_MIN_SCALE, scale))
-        return max(MIN_SIDE, round(bw * scale)), max(MIN_SIDE, round(bh * scale))
+        # Hard cap: thumbnails never render above 270×585 regardless of requested
+        # size. The result is upscaled by ImageOps.fit, which is imperceptible
+        # at grid card size and cuts render time for heavy generators by ~4×.
+        cw = max(MIN_SIDE, round(bw * scale))
+        ch = max(MIN_SIDE, round(bh * scale))
+        if self.quality == "thumb":
+            cw = min(cw, 270)
+            ch = min(ch, 585)
+        return cw, ch
 
 
 def scene_colors(key: str, palette: int, inverted: bool):
@@ -159,6 +178,31 @@ _cache = _ByteLRU(512 * 1024 * 1024)
 _inflight_lock = threading.Lock()
 _inflight: "dict[RenderSpec, threading.Lock]" = {}
 
+# Disk cache for thumbnails — survives server restarts so warm-up is instant.
+_DISK_CACHE_DIR = Path(os.getenv("THUMB_CACHE_DIR", "/tmp/wallbloom_thumbs"))
+_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _disk_key(spec: RenderSpec) -> Path:
+    import hashlib
+    h = hashlib.sha1(repr(spec).encode()).hexdigest()[:24]
+    return _DISK_CACHE_DIR / f"{h}.{spec.fmt}"
+
+
+def _disk_get(spec: RenderSpec) -> Optional[bytes]:
+    p = _disk_key(spec)
+    try:
+        return p.read_bytes() if p.exists() else None
+    except OSError:
+        return None
+
+
+def _disk_put(spec: RenderSpec, data: bytes) -> None:
+    try:
+        _disk_key(spec).write_bytes(data)
+    except OSError:
+        pass
+
 
 def encode(image: Image.Image, fmt: str, quality: str) -> bytes:
     pil_format, _ = FORMATS[fmt]
@@ -174,27 +218,44 @@ def encode(image: Image.Image, fmt: str, quality: str) -> bytes:
 
 def render(spec: RenderSpec) -> bytes:
     spec = spec.validated()
+
+    # 1. Memory cache — fastest, no I/O
     cached = _cache.get(spec)
     if cached is not None:
         return cached
+
+    # 2. Disk cache — survives restarts, serves thumbs in <1 ms after first render
+    if spec.quality == "thumb":
+        on_disk = _disk_get(spec)
+        if on_disk is not None:
+            _cache.put(spec, on_disk)  # promote to memory
+            return on_disk
+
+    # 3. CPU render — acquire semaphore or return 503 immediately
+    if not _render_sem.acquire(blocking=False):
+        raise RenderBusy("Server is busy rendering; please retry in a moment")
+
     with _inflight_lock:
         lock = _inflight.setdefault(spec, threading.Lock())
-    with lock:
-        cached = _cache.get(spec)
-        if cached is not None:
-            return cached
-        try:
+    try:
+        with lock:
+            # Another thread may have finished while we waited for the per-spec lock
+            cached = _cache.get(spec)
+            if cached is not None:
+                return cached
             cw, ch = spec.canvas_size
             image = _canvas(spec.kind, spec.key, spec.palette, spec.seed, spec.inverted, spec.key2, spec.blend, cw, ch)
             if image.size != (spec.width, spec.height):
-                # Cover-fit: keeps the composition centred for any device aspect ratio.
                 image = ImageOps.fit(image, (spec.width, spec.height), Image.LANCZOS, centering=(0.5, 0.5))
             data = encode(image.convert("RGB"), spec.fmt, spec.quality)
             _cache.put(spec, data)
+            if spec.quality == "thumb":
+                _disk_put(spec, data)
             return data
-        finally:
-            with _inflight_lock:
-                _inflight.pop(spec, None)
+    finally:
+        _render_sem.release()
+        with _inflight_lock:
+            _inflight.pop(spec, None)
 
 
 def media_type(fmt: str) -> str:

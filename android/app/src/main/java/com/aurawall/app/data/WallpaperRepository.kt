@@ -78,6 +78,9 @@ class WallpaperRepository(
 
     suspend fun bytes(url: String): ByteArray = api.bytes(url)
 
+    suspend fun bytesWithProgress(url: String, onProgress: (Float) -> Unit): ByteArray =
+        api.bytesWithProgress(url, onProgress)
+
     suspend fun health(): Boolean = api.health()
 
     private suspend fun write(file: File, text: String) = withContext(Dispatchers.IO) {

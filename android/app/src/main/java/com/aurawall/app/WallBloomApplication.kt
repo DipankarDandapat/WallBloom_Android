@@ -19,10 +19,33 @@ class WallBloomApplication : Application(), ImageLoaderFactory {
     val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            // Free-tier hosts can take a while to cold start and render 4K images.
             .readTimeout(90, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .addInterceptor(ChuckerInterceptor(this))
+            .build()
+    }
+
+    // Separate client for Coil thumbnails: max 3 concurrent requests so fast scrolling
+    // never floods the render server with 10+ simultaneous thumb renders.
+    // Also retries once on IOException (Canceled) after a short back-off so images
+    // that were mid-flight when the user scrolled away load correctly on scroll-back.
+    private val imageHttpClient: OkHttpClient by lazy {
+        httpClient.newBuilder()
+            .dispatcher(okhttp3.Dispatcher().also { it.maxRequestsPerHost = 3 })
+            .addInterceptor { chain ->
+                var attempt = 0
+                var lastEx: Exception? = null
+                while (attempt < 3) {
+                    try {
+                        return@addInterceptor chain.proceed(chain.request())
+                    } catch (e: java.io.IOException) {
+                        lastEx = e
+                        attempt++
+                        if (attempt < 3) Thread.sleep(300L * attempt)
+                    }
+                }
+                throw lastEx!!
+            }
             .build()
     }
 
@@ -33,7 +56,7 @@ class WallBloomApplication : Application(), ImageLoaderFactory {
     val device: DeviceActions by lazy { DeviceActions(this) }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
-        .okHttpClient(httpClient)
+        .okHttpClient(imageHttpClient)
         .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }
         .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(300L * 1024 * 1024).build() }
         // Renders are deterministic; cache them even though they are fetched with query strings.

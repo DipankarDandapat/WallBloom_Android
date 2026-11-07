@@ -2444,11 +2444,7 @@ def generate_nature_hot_spring(draw, width, height, colors, rng):
 def generate_nature_coral_reef(draw, width, height, colors, rng):
     """Underwater coral reef scene with corals, fish silhouettes, and light rays"""
     # Deep water gradient background
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)],
-                  fill=tuple(int(c1[i] * (1 - t) + c2[i] * t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     sand_color   = hex_to_rgb(colors[3])
     coral_colors = [hex_to_rgb(colors[i % len(colors)]) for i in range(2, 5)]
@@ -2999,10 +2995,13 @@ def generate_urban_industrial(draw, width, height, colors, rng):
 
 def generate_underwater_deep_ocean(draw, width, height, colors, rng):
     """Deep ocean abyss with pressure cracks, bioluminescent particles, and crushing darkness"""
+    import numpy as np
+    from PIL import Image
     c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    t = np.linspace(0, 1, height, dtype=np.float32)[:, None]
+    arr = (np.array(c1, dtype=np.float32) * (1 - t) + np.array(c2, dtype=np.float32) * t).astype(np.uint8)
+    arr = np.repeat(arr[:, None, :], width, axis=1)
+    draw._image.paste(Image.fromarray(arr, mode="RGB"), (0, 0))
 
     # Light rays from far above
     ray_color = hex_to_rgb(colors[2])
@@ -3032,12 +3031,19 @@ def generate_underwater_deep_ocean(draw, width, height, colors, rng):
         draw.ellipse([px-r, py-r, px+r, py+r], fill=particle_color)
 
 
+def _fast_gradient_scene(draw, width, height, c1, c2):
+    """Vectorised vertical gradient — replaces per-pixel draw.line loops."""
+    import numpy as np
+    from PIL import Image
+    t = np.linspace(0, 1, height, dtype=np.float32)[:, None]
+    arr = (np.array(c1, dtype=np.float32) * (1 - t) + np.array(c2, dtype=np.float32) * t).astype(np.uint8)
+    arr = np.repeat(arr[:, None, :], width, axis=1)
+    draw._image.paste(Image.fromarray(arr, mode="RGB"), (0, 0))
+
+
 def generate_underwater_shipwreck(draw, width, height, colors, rng):
     """Sunken shipwreck on the ocean floor with algae, fish, and murky water"""
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     # Murky light rays
     ray_color = hex_to_rgb(colors[2])
@@ -3092,10 +3098,7 @@ def generate_underwater_shipwreck(draw, width, height, colors, rng):
 
 def generate_underwater_kelp_forest(draw, width, height, colors, rng):
     """Kelp forest with tall swaying kelp strands, fish, and filtered light"""
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     # Light rays from surface
     ray_color = hex_to_rgb(colors[2])
@@ -3139,12 +3142,7 @@ def generate_underwater_bioluminescent(draw, width, height, colors, rng):
     """Deep dark ocean with glowing bioluminescent creatures and particles"""
     # Very dark background
     draw.rectangle([0, 0, width, height], fill=hex_to_rgb(colors[0]))
-
-    # Faint depth gradient
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     # Glowing jellyfish
     jelly_color = hex_to_rgb(colors[4 % len(colors)])
@@ -3185,10 +3183,7 @@ def generate_underwater_bioluminescent(draw, width, height, colors, rng):
 
 def generate_underwater_submarine(draw, width, height, colors, rng):
     """Submarine cruising through deep water with searchlights and bubbles"""
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     # Submarine body
     sub_color = hex_to_rgb(colors[3])
@@ -3458,11 +3453,7 @@ def generate_fantasy_crystal_cave(draw, width, height, colors, rng):
 
 def generate_fantasy_dragon_lair(draw, width, height, colors, rng):
     """Dark volcanic dragon lair with fire glow, treasure, and dragon silhouette"""
-    # Dark fiery background
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1])
-    for y in range(height):
-        t = y / height
-        draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient_scene(draw, width, height, hex_to_rgb(colors[0]), hex_to_rgb(colors[1]))
 
     # Cave walls
     wall_color = hex_to_rgb(colors[1])
@@ -3958,10 +3949,12 @@ def generate_scene(width, height, scene_type, palette_colors, seed, inverted=Fal
         generate_fantasy_aurora_castle(draw, width, height, palette_colors, rng)
     else:
         # Fallback gradient
+        import numpy as np
+        from PIL import Image as _Img
         c1, c2 = hex_to_rgb(palette_colors[0]), hex_to_rgb(palette_colors[-1])
-        for y in range(height):
-            t = y / height
-            draw.line([(0, y), (width, y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+        t = np.linspace(0, 1, height, dtype=np.float32)[:, None]
+        arr = (np.array(c1, dtype=np.float32)*(1-t) + np.array(c2, dtype=np.float32)*t).astype(np.uint8)
+        draw._image.paste(_Img.fromarray(np.repeat(arr[:, None, :], width, axis=1), mode="RGB"), (0, 0))
 
     return image
 

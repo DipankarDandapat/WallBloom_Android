@@ -554,17 +554,18 @@ def generate_geometric(draw, width, height, colors, rng):
         else:
             draw.polygon([(x, y), (x + size, y), (x + size // 2, y + size)], fill=rgb)
 
+def _fast_gradient(image, c1, c2):
+    """Fill image with a vertical gradient from c1 to c2 using numpy (replaces per-pixel draw.line loops)."""
+    w, h = image.size
+    t = np.linspace(0, 1, h, dtype=np.float32)[:, None]
+    arr = (np.array(c1, dtype=np.float32) * (1 - t) + np.array(c2, dtype=np.float32) * t).astype(np.uint8)
+    arr = np.repeat(arr[:, None, :], w, axis=1)
+    image.paste(Image.fromarray(arr, mode="RGB"), (0, 0))
+
+
 def generate_gradient(draw, width, height, colors, rng):
     """Generate gradient pattern"""
-    color1 = hex_to_rgb(colors[0])
-    color2 = hex_to_rgb(colors[-1])
-    
-    for y in range(height):
-        ratio = y / height
-        r = int(color1[0] * (1 - ratio) + color2[0] * ratio)
-        g = int(color1[1] * (1 - ratio) + color2[1] * ratio)
-        b = int(color1[2] * (1 - ratio) + color2[2] * ratio)
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[-1]))
 
 def generate_noise(draw, width, height, colors, rng):
     """Generate noise pattern"""
@@ -795,14 +796,7 @@ def generate_diamond(draw, width, height, colors, rng):
 def generate_lava(draw, width, height, colors, rng):
     """Generate lava lamp blob pattern"""
     num_blobs = rng.randint(6, 14)
-    # background gradient
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)])
-    for y in range(height):
-        t = y / height
-        r = int(c1[0] * (1 - t) + c2[0] * t)
-        g = int(c1[1] * (1 - t) + c2[1] * t)
-        b = int(c1[2] * (1 - t) + c2[2] * t)
-        draw.line([(0, y), (width, y)], fill=(r, g, b))
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)]))
     for i in range(num_blobs):
         color = colors[(i + 2) % len(colors)]
         rgb = hex_to_rgb(color)
@@ -984,13 +978,17 @@ def generate_rings(draw, width, height, colors, rng):
         (width // 2, 0), (0, height // 2),
     ]
     chosen = [origins[rng.randint(0, len(origins) - 1)] for _ in range(rng.randint(2, 4))]
-    max_r = int(math.sqrt(width ** 2 + height ** 2))
+    # Build the image with numpy instead of per-arc draw calls
+    arr = np.zeros((height, width, 3), dtype=np.float32)
+    arr[:] = np.array(bg, dtype=np.float32)
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
     gap = rng.randint(25, 55)
     for oi, (ox, oy) in enumerate(chosen):
-        color = colors[(oi + 1) % len(colors)]
-        rgb = hex_to_rgb(color)
-        for r in range(gap, max_r, gap * 2):
-            draw.arc([ox - r, oy - r, ox + r, oy + r], 0, 360, fill=rgb, width=rng.randint(2, 5))
+        rgb = np.array(hex_to_rgb(colors[(oi + 1) % len(colors)]), dtype=np.float32)
+        dist = np.sqrt((xx - ox) ** 2 + (yy - oy) ** 2)
+        mask = ((dist % (gap * 2)) < gap * 0.35)
+        arr[mask] = rgb
+    draw._image.paste(Image.fromarray(arr.astype(np.uint8), mode="RGB"), (0, 0))
 
 
 def generate_brushstroke(draw, width, height, colors, rng):
@@ -1386,17 +1384,16 @@ def generate_waveform(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
     draw.rectangle([0, 0, width, height], fill=bg)
     num_waves = rng.randint(3, 6)
+    xs = np.arange(width, dtype=np.float32)
     for i in range(num_waves):
-        rgb = hex_to_rgb(colors[(i+1) % len(colors)])
-        cy = int(height * (i+1) / (num_waves+1))
+        rgb = hex_to_rgb(colors[(i + 1) % len(colors)])
+        cy = int(height * (i + 1) / (num_waves + 1))
         freqs = [rng.uniform(0.005, 0.03) for _ in range(3)]
         amps = [rng.randint(10, 40) for _ in range(3)]
-        pts = []
-        for x in range(width):
-            y = cy + sum(int(amps[j]*math.sin(x*freqs[j])) for j in range(3))
-            pts.append((x, y))
-        for j in range(len(pts)-1):
-            draw.line([pts[j], pts[j+1]], fill=rgb, width=2)
+        ys = cy + sum(amps[j] * np.sin(xs * freqs[j]) for j in range(3))
+        pts = list(zip(xs.astype(int).tolist(), ys.astype(int).tolist()))
+        for j in range(len(pts) - 1):
+            draw.line([pts[j], pts[j + 1]], fill=rgb, width=2)
 
 def generate_satellite(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
@@ -1417,16 +1414,20 @@ def generate_sonar(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
     draw.rectangle([0, 0, width, height], fill=bg)
     num_sources = rng.randint(2, 4)
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    arr = np.zeros((height, width, 3), dtype=np.float32)
+    arr[:] = np.array(bg, dtype=np.float32)
     for si in range(num_sources):
-        cx = rng.randint(width//4, 3*width//4)
-        cy = rng.randint(height//4, 3*height//4)
-        rgb = hex_to_rgb(colors[(si+1) % len(colors)])
-        max_r = int(math.sqrt(width**2+height**2))
+        cx = rng.randint(width // 4, 3 * width // 4)
+        cy = rng.randint(height // 4, 3 * height // 4)
+        rgb = np.array(hex_to_rgb(colors[(si + 1) % len(colors)]), dtype=np.float32)
+        max_r = math.sqrt(width ** 2 + height ** 2)
         gap = rng.randint(30, 60)
-        for r in range(gap, max_r, gap*2):
-            fade = int(200 * (1 - r/max_r))
-            fc = tuple(int(v*fade//200) for v in rgb)
-            draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline=fc, width=1)
+        dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+        fade = np.clip(1.0 - dist / max_r, 0, 1)
+        ring_mask = ((dist % (gap * 2)) < 2)
+        arr[ring_mask] = arr[ring_mask] * (1 - fade[ring_mask, None]) + rgb * fade[ring_mask, None]
+    draw._image.paste(Image.fromarray(arr.astype(np.uint8), mode="RGB"), (0, 0))
 
 def generate_datastream(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
@@ -1465,13 +1466,16 @@ def generate_neural(draw, width, height, colors, rng):
     nodes = [(rng.randint(0, width), rng.randint(0, height)) for _ in range(rng.randint(20, 40))]
     rgb1 = hex_to_rgb(colors[1 % len(colors)])
     rgb2 = hex_to_rgb(colors[2 % len(colors)])
-    for i, (x1, y1) in enumerate(nodes):
-        for j, (x2, y2) in enumerate(nodes):
-            if i < j and math.sqrt((x2-x1)**2+(y2-y1)**2) < width//4:
-                draw.line([(x1,y1),(x2,y2)], fill=rgb1, width=1)
+    # Use numpy to compute pairwise distances and only draw close pairs
+    pts = np.array(nodes, dtype=np.float32)
+    threshold = width // 4
+    for i in range(len(pts)):
+        dists = np.sqrt(((pts[i] - pts) ** 2).sum(axis=1))
+        for j in np.where((dists < threshold) & (np.arange(len(pts)) > i))[0]:
+            draw.line([(int(pts[i][0]), int(pts[i][1])), (int(pts[j][0]), int(pts[j][1]))], fill=rgb1, width=1)
     for (nx, ny) in nodes:
         r = rng.randint(4, 10)
-        draw.ellipse([nx-r, ny-r, nx+r, ny+r], fill=rgb2)
+        draw.ellipse([nx - r, ny - r, nx + r, ny + r], fill=rgb2)
 
 def generate_coral(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
@@ -1542,10 +1546,7 @@ def generate_vines(draw, width, height, colors, rng):
             draw.ellipse([lx-lw, ly-lh, lx+lw, ly+lh], fill=rgb)
 
 def generate_clouds(draw, width, height, colors, rng):
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)])
-    for y in range(height):
-        t = y / height
-        draw.line([(0,y),(width,y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)]))
     for _ in range(rng.randint(6, 14)):
         rgb = hex_to_rgb(colors[rng.randint(2, len(colors)-1)])
         cx = rng.randint(0, width)
@@ -1750,11 +1751,7 @@ def generate_ink_blot(draw, width, height, colors, rng):
         draw.polygon(pts, fill=rgb)
 
 def generate_watercolor(draw, width, height, colors, rng):
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[-1])
-    for y in range(height):
-        t = y/height
-        base = tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3))
-        draw.line([(0,y),(width,y)], fill=base)
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[-1]))
     for _ in range(rng.randint(8, 18)):
         rgb = hex_to_rgb(colors[rng.randint(0, len(colors)-1)])
         cx = rng.randint(0, width)
@@ -1922,24 +1919,25 @@ def generate_honeycomb_flow(draw, width, height, colors, rng):
         col_idx += 1
 
 def generate_pixel_sort(draw, width, height, colors, rng):
-    bg = hex_to_rgb(colors[0])
-    draw.rectangle([0, 0, width, height], fill=bg)
+    palette = np.array([hex_to_rgb(c) for c in colors], dtype=np.uint8)
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
+    arr[:] = palette[0]
     stripe_h = rng.randint(3, 10)
     for y in range(0, height, stripe_h):
+        y2 = min(y + stripe_h, height)
         num_segs = rng.randint(3, 8)
         xs = sorted([rng.randint(0, width) for _ in range(num_segs)])
         xs = [0] + xs + [width]
-        for i in range(len(xs)-1):
-            rgb = hex_to_rgb(colors[i % len(colors)])
+        for i in range(len(xs) - 1):
             shift = rng.randint(-30, 30)
-            x1, x2 = xs[i]+shift, xs[i+1]+shift
-            draw.rectangle([x1, y, x2, y+stripe_h], fill=rgb)
+            x1 = max(0, min(width, xs[i] + shift))
+            x2 = max(0, min(width, xs[i + 1] + shift))
+            if x2 > x1:
+                arr[y:y2, x1:x2] = palette[i % len(palette)]
+    draw._image.paste(Image.fromarray(arr, mode="RGB"), (0, 0))
 
 def generate_sand_ripple(draw, width, height, colors, rng):
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)])
-    for y in range(height):
-        t = y / height
-        draw.line([(0,y),(width,y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)]))
     rgb = hex_to_rgb(colors[2 % len(colors)])
     num_ripples = rng.randint(8, 18)
     for i in range(num_ripples):
@@ -2044,17 +2042,20 @@ def generate_lenticular(draw, width, height, colors, rng):
     draw.rectangle([0, 0, width, height], fill=bg)
     num_bands = rng.randint(6, 14)
     band_h = height // num_bands
+    palette = [hex_to_rgb(colors[(i + 1) % len(colors)]) for i in range(num_bands)]
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
+    xs = np.arange(width, dtype=np.float32)
     for i in range(num_bands):
-        rgb = hex_to_rgb(colors[(i+1) % len(colors)])
-        y = i * band_h
+        rgb = np.array(palette[i], dtype=np.uint8)
+        y_base = i * band_h
         freq = rng.uniform(0.005, 0.015)
-        amp = rng.randint(band_h//4, band_h//2)
-        pts_top, pts_bot = [], []
+        amp = rng.randint(band_h // 4, band_h // 2)
+        mid = y_base + band_h // 2 + (amp * np.sin(xs * freq)).astype(int)
+        top = np.clip(mid - band_h // 3, 0, height - 1)
+        bot = np.clip(mid + band_h // 3, 0, height - 1)
         for x in range(width):
-            mid = y + band_h//2 + int(math.sin(x*freq)*amp)
-            pts_top.append((x, mid - band_h//3))
-            pts_bot.append((x, mid + band_h//3))
-        draw.polygon(pts_top + list(reversed(pts_bot)), fill=rgb)
+            arr[top[x]:bot[x], x] = rgb
+    draw._image.paste(Image.fromarray(arr, mode="RGB"), (0, 0))
 
 def generate_brush_grid(draw, width, height, colors, rng):
     bg = hex_to_rgb(colors[0])
@@ -2129,10 +2130,7 @@ def generate_sunburst(draw, width, height, colors, rng):
         draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline=rgb, width=2)
 
 def generate_droplets(draw, width, height, colors, rng):
-    c1, c2 = hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)])
-    for y in range(height):
-        t = y/height
-        draw.line([(0,y),(width,y)], fill=tuple(int(c1[i]*(1-t)+c2[i]*t) for i in range(3)))
+    _fast_gradient(draw._image, hex_to_rgb(colors[0]), hex_to_rgb(colors[1 % len(colors)]))
     for i in range(rng.randint(20, 50)):
         rgb = hex_to_rgb(colors[(i % (len(colors)-1))+1])
         cx2 = rng.randint(0, width)
